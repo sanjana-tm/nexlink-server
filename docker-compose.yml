@@ -1,0 +1,113 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NexLink Server — Docker Compose
+#
+# Services:
+#   postgres   — PostgreSQL 16 database
+#   migrate    — One-shot Alembic migration runner (runs then exits)
+#   server     — NexLink FastAPI server
+#
+# Usage:
+#   docker compose up -d          # start all
+#   docker compose logs -f server # follow server logs
+#   docker compose down -v        # stop and delete volumes
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── PostgreSQL ─────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: nexlink-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: nexlink
+      POSTGRES_PASSWORD: nexlink
+      POSTGRES_DB: nexlink
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexlink -d nexlink"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - nexlink-net
+
+  # ── Alembic migration runner ───────────────────────────────────────────────
+  migrate:
+    build:
+      context: .
+      target: production
+    container_name: nexlink-migrate
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      NEXLINK_DATABASE_URL: postgresql+asyncpg://nexlink:nexlink@postgres:5432/nexlink
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - nexlink-net
+    restart: "no"  # run once and exit
+
+  # ── NexLink Server ─────────────────────────────────────────────────────────
+  server:
+    build:
+      context: .
+      target: production
+    container_name: nexlink-server
+    restart: unless-stopped
+    environment:
+      # Database
+      NEXLINK_DATABASE_URL: postgresql+asyncpg://nexlink:nexlink@postgres:5432/nexlink
+      # Server
+      NEXLINK_HOST: 0.0.0.0
+      NEXLINK_PORT: 9000
+      NEXLINK_DEBUG: "false"
+      # JWT — CHANGE IN PRODUCTION
+      NEXLINK_JWT_SECRET_KEY: "CHANGE_ME_IN_PRODUCTION"
+      NEXLINK_JWT_ALGORITHM: HS256
+      NEXLINK_JWT_ACCESS_EXPIRE_MINUTES: "60"
+      NEXLINK_JWT_REFRESH_EXPIRE_DAYS: "30"
+      # Heartbeat
+      NEXLINK_HEARTBEAT_TIMEOUT_SECONDS: "60"
+      NEXLINK_HEARTBEAT_CHECK_INTERVAL_SECONDS: "15"
+      # Logging
+      NEXLINK_LOG_LEVEL: INFO
+      NEXLINK_LOG_FORMAT: json
+      NEXLINK_LOG_DIR: /app/logs
+      # CORS
+      NEXLINK_CORS_ORIGINS: "*"
+    ports:
+      - "9000:9000"
+    volumes:
+      - server_logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import httpx; httpx.get('http://localhost:9000/health', timeout=5).raise_for_status()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    networks:
+      - nexlink-net
+
+volumes:
+  postgres_data:
+    name: nexlink-postgres-data
+  server_logs:
+    name: nexlink-server-logs
+
+networks:
+  nexlink-net:
+    name: nexlink-network
+    driver: bridge
