@@ -63,17 +63,30 @@ async def register_device(
     result = await db.execute(
         select(Device).where(Device.serial_number == req.serial_number)
     )
-    if result.scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Device already registered",
-        )
+    existing = result.scalar_one_or_none()
 
-    # Generate API key
+    # Generate a fresh API key (new registration OR key rotation after reinstall/wipe)
     raw_key = secrets.token_hex(32)
     key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
 
-    # Create device record — store key hash in metadata_ JSONB
+    if existing:
+        # Device re-registering (e.g. after wipe) — rotate key, update info
+        existing.metadata_ = {
+            **(existing.metadata_ or {}),
+            "api_key_hash": key_hash,
+            "api_key_prefix": raw_key[:8],
+        }
+        if req.model:
+            existing.model = req.model
+        if req.manufacturer:
+            existing.manufacturer = req.manufacturer
+        if req.android_version:
+            existing.android_version = req.android_version
+        await db.flush()
+        logger.info("Device re-registered (key rotated): serial=%s prefix=%s", req.serial_number, raw_key[:8])
+        return RegisterResponse(serial_number=req.serial_number, api_key=raw_key)
+
+    # Create new device record
     device = Device(
         serial_number=req.serial_number,
         model=req.model,
