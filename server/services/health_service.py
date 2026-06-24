@@ -64,12 +64,12 @@ class HealthService:
 
         def network_score(dbm: int | None) -> float:
             if dbm is None:
-                return 70.0
-            if dbm > -50:
+                return 80.0
+            if dbm > -55:
                 return 100.0
-            if dbm < -80:
-                return 20.0
-            return 100.0 - (abs(dbm) - 50) * (80.0 / 30.0)
+            if dbm < -85:
+                return 30.0
+            return 100.0 - (abs(dbm) - 55) * (70.0 / 30.0)
 
         uptime_val = 100.0 if heartbeat_on_time else 30.0
 
@@ -85,8 +85,8 @@ class HealthService:
     @staticmethod
     def status_from_score(score: int) -> str:
         """Map a health score to a human-readable status string."""
-        if score >= 90:
+        if score >= 80:
             return "healthy"
-        if score >= 70:
+        if score >= 50:
             return "warning"
         return "critical"
