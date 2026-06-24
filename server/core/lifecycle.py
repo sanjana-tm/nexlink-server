@@ -32,11 +32,13 @@ from server.db.session import engine
 from server.services.event_bus import event_bus
 from server.services.heartbeat_manager import HeartbeatMonitor
 from server.services.logging_service import setup_logging
+from server.services.ws_keepalive import WsKeepAlive
 
 logger = logging.getLogger(__name__)
 
 # ── Global background task handles ────────────────────────────────────────────
 _heartbeat_monitor = HeartbeatMonitor()
+_ws_keepalive = WsKeepAlive()
 _startup_time: float | None = None
 
 
@@ -76,6 +78,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await _heartbeat_monitor.start()
     logger.info("Heartbeat monitor: started")
 
+    # Start WebSocket keep-alive pinger
+    await _ws_keepalive.start()
+    logger.info("WS keep-alive: started")
+
     _startup_time = time.monotonic()
     logger.info("NexLink Server ready to accept connections")
 
@@ -84,6 +90,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # ── SHUTDOWN ──────────────────────────────────────────────────────────────
     logger.info("NexLink Server shutting down...")
+
+    await _ws_keepalive.stop()
+    logger.info("WS keep-alive: stopped")
 
     await _heartbeat_monitor.stop()
     logger.info("Heartbeat monitor: stopped")
