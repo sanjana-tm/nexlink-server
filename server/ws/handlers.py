@@ -32,7 +32,6 @@ Unknown types are logged and ignored (forward compatibility).
 from __future__ import annotations
 
 import logging
-import uuid
 from datetime import datetime, timezone
 from typing import Any
 
@@ -79,6 +78,7 @@ class MessageDispatcher:
             "command_ack":      self._handle_command_ack,
             "command_result":   self._handle_command_result,
             "reconnect_attempt": self._handle_reconnect_attempt,
+            "stream.frame":     self._handle_stream_frame,
         }
 
         handler = handlers.get(msg_type)
@@ -193,6 +193,18 @@ class MessageDispatcher:
             source_device_id=self._device_id,
             session_id=self._session_id,
         )
+
+    async def _handle_stream_frame(self, message: dict) -> None:
+        """Device sent a screen frame — fan it out to all browser viewers."""
+        from server.ws.viewer_manager import viewer_manager
+        payload = message.get("payload", {})
+        count = viewer_manager.broadcast_frame(
+            self._device_id,
+            {"type": "stream.frame", "serial": self._device_id, "payload": payload},
+        )
+        if count == 0:
+            # No viewers — tell device to stop wasting bandwidth
+            await self._manager.send(self._device_id, {"type": "stream.stop", "payload": {}})
 
 
 # ── Server-to-Agent message builders ─────────────────────────────────────────

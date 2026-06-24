@@ -29,6 +29,7 @@ from server.config.settings import get_settings
 from server.core.exceptions import NexLinkError, nexlink_error_handler, generic_error_handler
 from server.core.lifecycle import get_uptime, lifespan
 from server.ws.gateway import router as ws_router
+from server.ws.remote_gateway import router as remote_ws_router
 
 settings = get_settings()
 
@@ -85,8 +86,9 @@ app.add_exception_handler(NexLinkError, nexlink_error_handler)
 app.add_exception_handler(Exception, generic_error_handler)
 
 # ── Routers ───────────────────────────────────────────────────────────────────
-app.include_router(api_router)   # /api/v1/...
-app.include_router(ws_router)    # /ws/v1/connect
+app.include_router(api_router)        # /api/v1/...
+app.include_router(ws_router)         # /ws/v1/connect
+app.include_router(remote_ws_router)  # /ws/v1/remote/{serial}
 
 
 # ── Health & Info Endpoints ───────────────────────────────────────────────────
