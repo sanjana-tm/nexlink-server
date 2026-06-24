@@ -70,37 +70,57 @@ class ConnectionManager:
 
         If the device already has an active connection (duplicate connect /
         agent reconnected without proper close), the old WebSocket is closed
-        with code 4001 (replaced) before registering the new one.
+        with code 4001 (replaced) after the new one is registered.
 
         WebSocket.accept() is called here — must be called before sending
         or receiving any messages.
         """
         await websocket.accept()
 
+        old_ws = None
+        old_session = None
         async with self._lock:
-            existing = self._connections.get(device_id)
-            if existing is not None:
-                logger.warning(
-                    "Device %s already connected — closing old session %s",
-                    device_id,
-                    self._session_map.get(device_id),
-                )
-                try:
-                    await existing.close(code=4001, reason="Replaced by new connection")
-                except Exception:
-                    pass  # old connection may already be dead
-
+            old_ws = self._connections.get(device_id)
+            old_session = self._session_map.get(device_id)
+            # Register new connection first so disconnect() from the old
+            # handler's cleanup sees the new websocket and skips the removal.
             self._connections[device_id] = websocket
             self._session_map[device_id] = session_id
+
+        if old_ws is not None:
+            logger.warning(
+                "Device %s already connected — closing old session %s",
+                device_id,
+                old_session,
+            )
+            try:
+                # Close outside the lock: awaiting inside the lock would
+                # block the lock while waiting for the close handshake.
+                await old_ws.close(code=4001, reason="Replaced by new connection")
+            except Exception:
+                pass  # old connection may already be dead
 
         logger.info(
             "WebSocket connected: device_id=%s session_id=%s total=%d",
             device_id, session_id, len(self._connections),
         )
 
-    async def disconnect(self, device_id: str) -> None:
-        """Remove a device's WebSocket registration. Does NOT close the socket."""
+    async def disconnect(self, device_id: str, websocket: WebSocket | None = None) -> None:
+        """
+        Remove a device's WebSocket registration. Does NOT close the socket.
+
+        If ``websocket`` is provided, the removal is skipped when the current
+        registered websocket differs from the supplied one — this prevents a
+        stale cleanup (e.g., from an old handler that ran after a reconnect)
+        from evicting a newer active connection.
+        """
         async with self._lock:
+            if websocket is not None and self._connections.get(device_id) is not websocket:
+                # A newer connection already replaced this websocket — skip.
+                logger.debug(
+                    "disconnect: stale websocket for %s — skipping removal", device_id
+                )
+                return
             self._connections.pop(device_id, None)
             self._session_map.pop(device_id, None)
 
@@ -131,7 +151,7 @@ class ConnectionManager:
             return True
         except Exception as e:
             logger.warning("send failed for device %s: %s", device_id, e)
-            await self.disconnect(device_id)
+            await self.disconnect(device_id, websocket=ws)
             return False
 
     async def broadcast(
@@ -161,7 +181,7 @@ class ConnectionManager:
                 sent_count += 1
             except Exception as e:
                 logger.warning("broadcast: failed for device %s: %s", device_id, e)
-                await self.disconnect(device_id)
+                await self.disconnect(device_id, websocket=ws)
 
         return sent_count
 

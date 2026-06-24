@@ -132,7 +132,9 @@ async def websocket_endpoint(
         logger.error("WebSocket error for %s: %s", serial_number, e, exc_info=True)
 
     # ── Step 7: Cleanup ──────────────────────────────────────────────────────
-    await connection_manager.disconnect(serial_number)
+    # Pass websocket for identity check — prevents a stale cleanup from an
+    # old handler from evicting a newer connection for the same serial.
+    await connection_manager.disconnect(serial_number, websocket=websocket)
 
     async with AsyncSessionFactory() as db:
         try:
