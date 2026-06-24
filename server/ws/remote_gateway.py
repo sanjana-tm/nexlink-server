@@ -41,11 +41,23 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+_VIEWER_PING_INTERVAL = 20  # seconds between keep-alive pings to browser viewer
+
+
 async def _sender_task(viewer: ViewerConnection) -> None:
     """Drain the viewer's frame queue and send to the browser WebSocket."""
     while True:
         try:
-            message = await viewer.queue.get()
+            message = await asyncio.wait_for(viewer.queue.get(), timeout=_VIEWER_PING_INTERVAL)
+        except asyncio.TimeoutError:
+            # No frames arrived — send a keep-alive ping so Render's proxy doesn't
+            # close the viewer WebSocket due to idle timeout.
+            try:
+                await viewer.ws.send_json({"type": "viewer.ping"})
+            except Exception as e:
+                logger.debug("Viewer %s keep-alive ping failed: %s — closing", viewer.viewer_id[:8], e)
+                break
+            continue
         except asyncio.CancelledError:
             break
 
@@ -54,8 +66,9 @@ async def _sender_task(viewer: ViewerConnection) -> None:
 
         try:
             await viewer.ws.send_json(message)
-        except Exception:
-            break  # WebSocket closed; stop trying
+        except Exception as e:
+            logger.warning("Viewer %s send failed: %s — closing sender", viewer.viewer_id[:8], e)
+            break
 
     logger.debug("Sender task ended for viewer %s", viewer.viewer_id[:8])
 

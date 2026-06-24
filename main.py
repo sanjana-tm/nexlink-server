@@ -123,6 +123,7 @@ async def health_check() -> dict:
 async def server_info() -> dict:
     """Return server configuration info (non-sensitive fields only)."""
     from server.ws.manager import connection_manager
+    from server.ws.viewer_manager import viewer_manager
 
     return {
         "version": "2.0.0",
@@ -131,6 +132,7 @@ async def server_info() -> dict:
         "active_ws_connections": connection_manager.connection_count,
         "online_devices": connection_manager.online_device_ids,
         "uptime_seconds": get_uptime(),
+        "viewers": viewer_manager.status(),
     }
 
 

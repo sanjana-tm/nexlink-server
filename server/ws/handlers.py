@@ -198,12 +198,19 @@ class MessageDispatcher:
         """Device sent a screen frame — fan it out to all browser viewers."""
         from server.ws.viewer_manager import viewer_manager
         payload = message.get("payload", {})
+        frame_id = payload.get("frame_id", -1)
         count = viewer_manager.broadcast_frame(
             self._device_id,
             {"type": "stream.frame", "serial": self._device_id, "payload": payload},
         )
+        if frame_id % 20 == 0:
+            logger.info(
+                "stream.frame #%s from %s → %d viewer(s)",
+                frame_id, self._device_id[:12], count,
+            )
         if count == 0:
             # No viewers — tell device to stop wasting bandwidth
+            logger.debug("No viewers for %s — sending stream.stop", self._device_id[:12])
             await self._manager.send(self._device_id, {"type": "stream.stop", "payload": {}})
 
 
