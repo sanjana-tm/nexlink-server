@@ -79,6 +79,7 @@ class MessageDispatcher:
             "command_result":   self._handle_command_result,
             "reconnect_attempt": self._handle_reconnect_attempt,
             "stream.frame":     self._handle_stream_frame,
+            "stream.error":     self._handle_stream_error,
         }
 
         handler = handlers.get(msg_type)
@@ -193,6 +194,14 @@ class MessageDispatcher:
             source_device_id=self._device_id,
             session_id=self._session_id,
         )
+
+    async def _handle_stream_error(self, message: dict) -> None:
+        """Device reports that screen capture failed — forward to all viewers."""
+        from server.ws.viewer_manager import viewer_manager
+        payload = message.get("payload", {})
+        error_msg = payload.get("message", "Screen capture failed on device")
+        logger.error("stream.error from device %s: %s", self._device_id[:12], error_msg)
+        viewer_manager.broadcast_frame(self._device_id, {"type": "error", "message": error_msg})
 
     async def _handle_stream_frame(self, message: dict) -> None:
         """Device sent a screen frame — fan it out to all browser viewers."""
