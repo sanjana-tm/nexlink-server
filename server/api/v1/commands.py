@@ -28,6 +28,7 @@ from server.schemas.command import (
     CommandHistoryResponse,
     CommandResultSchema,
 )
+from server.ws.manager import connection_manager
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["commands"])
@@ -88,6 +89,34 @@ async def execute_command(
     )
 
     return CommandResultSchema.model_validate(record)
+
+
+@router.post(
+    "/devices/{serial}/update-agent",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Push APK update to device",
+    description="Send an apk.update command to the device over WebSocket. The device downloads the APK from the given URL and launches the system installer.",
+)
+async def update_agent(
+    serial: str,
+    apk_url: str = Query(..., description="Public HTTPS URL of the APK to install"),
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(get_current_serial),
+) -> dict:
+    """Push a remote APK self-update to the device."""
+    await _verify_device(serial, db)
+
+    sent = await connection_manager.send(serial, {
+        "type": "apk.update",
+        "payload": {"url": apk_url},
+    })
+
+    if not sent:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=503, detail="Device not connected")
+
+    logger.info("apk.update dispatched to %s url=%s", serial, apk_url)
+    return {"status": "dispatched", "serial": serial, "url": apk_url}
 
 
 @router.get(
