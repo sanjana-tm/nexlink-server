@@ -5,6 +5,7 @@ from fastapi import APIRouter
 
 from server.api.v1 import (
     alerts,
+    apk,
     auth,
     automation,
     commands,
@@ -19,6 +20,7 @@ from server.api.v1 import (
 api_router = APIRouter(prefix="/api/v1")
 
 api_router.include_router(auth.router)
+api_router.include_router(apk.router)
 api_router.include_router(devices.router)
 api_router.include_router(heartbeat.router)
 api_router.include_router(screenshots.router)

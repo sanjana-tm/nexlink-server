@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -95,16 +95,32 @@ async def execute_command(
     "/devices/{serial}/update-agent",
     status_code=status.HTTP_202_ACCEPTED,
     summary="Push APK update to device",
-    description="Send an apk.update command to the device over WebSocket. The device downloads the APK from the given URL and launches the system installer.",
+    description=(
+        "Send an apk.update command to the device over WebSocket. "
+        "The device downloads the APK from apk_url and launches the system installer. "
+        "If apk_url is omitted the server's own /api/v1/apk/download endpoint is used."
+    ),
 )
 async def update_agent(
     serial: str,
-    apk_url: str = Query(..., description="Public HTTPS URL of the APK to install"),
+    request: Request,
+    apk_url: str | None = Query(None, description="Public HTTPS URL of the APK to install"),
     db: AsyncSession = Depends(get_db),
     _auth: str = Depends(get_current_serial),
 ) -> dict:
     """Push a remote APK self-update to the device."""
+    from fastapi import HTTPException
     await _verify_device(serial, db)
+
+    if not connection_manager.is_connected(serial):
+        raise HTTPException(status_code=503, detail="Device not connected")
+
+    if not apk_url:
+        # Reconstruct the public-facing base URL, honouring reverse-proxy headers
+        # so the URL is correct both locally and behind Render / nginx.
+        scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
+        host = request.headers.get("x-forwarded-host", request.headers.get("host", request.url.netloc))
+        apk_url = f"{scheme}://{host}/api/v1/apk/download"
 
     sent = await connection_manager.send(serial, {
         "type": "apk.update",
@@ -112,8 +128,7 @@ async def update_agent(
     })
 
     if not sent:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=503, detail="Device not connected")
+        raise HTTPException(status_code=503, detail="Device not connected (send failed)")
 
     logger.info("apk.update dispatched to %s url=%s", serial, apk_url)
     return {"status": "dispatched", "serial": serial, "url": apk_url}
