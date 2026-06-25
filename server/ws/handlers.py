@@ -80,6 +80,7 @@ class MessageDispatcher:
             "reconnect_attempt": self._handle_reconnect_attempt,
             "stream.frame":     self._handle_stream_frame,
             "stream.error":     self._handle_stream_error,
+            "stream.stopped":   self._handle_stream_stopped,
         }
 
         handler = handlers.get(msg_type)
@@ -203,6 +204,17 @@ class MessageDispatcher:
         logger.error("stream.error from device %s: %s", self._device_id[:12], error_msg)
         viewer_manager.broadcast_frame(self._device_id, {"type": "error", "message": error_msg})
 
+    async def _handle_stream_stopped(self, message: dict) -> None:
+        """Device reports that MediaProjection was stopped by the system."""
+        from server.ws.viewer_manager import viewer_manager
+        payload = message.get("payload", {})
+        reason = payload.get("reason", "unknown")
+        logger.info("stream.stopped from device %s (reason=%s)", self._device_id[:12], reason)
+        viewer_manager.broadcast_frame(
+            self._device_id,
+            {"type": "stream.stopped", "serial": self._device_id, "payload": payload},
+        )
+
     async def _handle_stream_frame(self, message: dict) -> None:
         """Device sent a screen frame — fan it out to all browser viewers."""
         from server.ws.viewer_manager import viewer_manager
@@ -212,7 +224,8 @@ class MessageDispatcher:
             self._device_id,
             {"type": "stream.frame", "serial": self._device_id, "payload": payload},
         )
-        if frame_id % 20 == 0:
+        # Always log the first frame so we know frames are flowing
+        if frame_id == 0 or frame_id % 20 == 0:
             logger.info(
                 "stream.frame #%s from %s → %d viewer(s)",
                 frame_id, self._device_id[:12], count,

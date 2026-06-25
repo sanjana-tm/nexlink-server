@@ -102,6 +102,15 @@ class ViewerManager:
             "total_viewers": sum(len(v) for v in self._viewers.values()),
         }
 
+    def debug_stats(self) -> dict:
+        result = {}
+        for serial, viewers in self._viewers.items():
+            result[serial] = [
+                {"viewer_id": v.viewer_id[:8], "frames": v.frame_count, "dropped": v.dropped_frames}
+                for v in viewers
+            ]
+        return result
+
 
 # Singleton
 viewer_manager = ViewerManager()

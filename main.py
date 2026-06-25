@@ -133,6 +133,7 @@ async def server_info() -> dict:
         "online_devices": connection_manager.online_device_ids,
         "uptime_seconds": get_uptime(),
         "viewers": viewer_manager.status(),
+        "stream_stats": viewer_manager.debug_stats(),
     }
 
 
