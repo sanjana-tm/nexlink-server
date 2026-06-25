@@ -230,8 +230,9 @@ class MessageDispatcher:
                 "stream.frame #%s from %s → %d viewer(s)",
                 frame_id, self._device_id[:12], count,
             )
-        if count == 0:
-            # No viewers — tell device to stop wasting bandwidth
+        if count == 0 and frame_id > 5:
+            # No viewers after initial frames — tell device to stop wasting bandwidth.
+            # Grace period of 5 frames avoids race where viewer WS hasn't registered yet.
             logger.debug("No viewers for %s — sending stream.stop", self._device_id[:12])
             await self._manager.send(self._device_id, {"type": "stream.stop", "payload": {}})
 
