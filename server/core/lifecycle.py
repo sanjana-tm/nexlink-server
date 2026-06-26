@@ -29,6 +29,7 @@ from fastapi import FastAPI
 
 from server.config.settings import get_settings
 from server.db.session import engine
+from server.services.automation_scheduler import automation_scheduler
 from server.services.event_bus import event_bus
 from server.services.heartbeat_manager import HeartbeatMonitor
 from server.services.logging_service import setup_logging
@@ -82,6 +83,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await _ws_keepalive.start()
     logger.info("WS keep-alive: started")
 
+    # Start automation run scheduler
+    await automation_scheduler.start()
+    logger.info("Automation scheduler: started")
+
     _startup_time = time.monotonic()
     logger.info("NexLink Server ready to accept connections")
 
@@ -90,6 +95,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # ── SHUTDOWN ──────────────────────────────────────────────────────────────
     logger.info("NexLink Server shutting down...")
+
+    await automation_scheduler.stop()
+    logger.info("Automation scheduler: stopped")
 
     await _ws_keepalive.stop()
     logger.info("WS keep-alive: stopped")
