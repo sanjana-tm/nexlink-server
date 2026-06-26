@@ -97,10 +97,19 @@ class AutomationScheduler:
     async def _dispatch_queued(self) -> None:
         """
         Find queued runs whose device is online and send automation.execute.
-        Uses SELECT ... LIMIT so we don't overwhelm the queue in one shot.
+        Only one run is dispatched per device at a time — if a device already
+        has a 'running' run we skip all its queued runs this tick.
         """
         async with AsyncSessionFactory() as db:
             try:
+                # Build the set of devices that already have a run in-flight
+                busy_result = await db.execute(
+                    select(AutomationRun.serial_number)
+                    .where(AutomationRun.status == "running")
+                    .distinct()
+                )
+                busy_serials: set[str] = {row[0] for row in busy_result.all() if row[0]}
+
                 result = await db.execute(
                     select(AutomationRun)
                     .where(AutomationRun.status == "queued")
@@ -112,8 +121,13 @@ class AutomationScheduler:
                 )
                 runs = list(result.scalars().all())
 
+                dispatched_this_tick: set[str] = set()
                 for run in runs:
                     if not run.serial_number:
+                        continue
+                    if run.serial_number in busy_serials:
+                        continue
+                    if run.serial_number in dispatched_this_tick:
                         continue
                     if not connection_manager.is_connected(run.serial_number):
                         continue
@@ -148,6 +162,7 @@ class AutomationScheduler:
                         )
                     else:
                         self._in_flight[run.id] = now
+                        dispatched_this_tick.add(run.serial_number)
                         logger.info(
                             "Dispatched automation run %s (%s) to %s",
                             run.id[:8], run.test_type, run.serial_number,
